@@ -63,6 +63,8 @@ export interface DriverComment {
   company_name: string;
   comment: string;
   stars: number;
+  source_type?: string | null;
+  tooltip_text?: string | null;
   user_id: string | null;
   company_id: string | null;
   created_at: string;

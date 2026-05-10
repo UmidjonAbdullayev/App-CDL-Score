@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Star, Trash2, ChevronDown, ChevronUp, Plus, MessageSquare, Flag, CornerDownRight } from 'lucide-react';
+import { Star, Trash2, ChevronDown, ChevronUp, Plus, MessageSquare, Flag, CornerDownRight, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Driver, Flag as FlagType, DriverComment } from '../lib/supabase';
 import { FlagReportModal } from './FlagReportModal';
@@ -112,6 +112,8 @@ function CommentRow({
   currentCompanyId,
   onDelete,
   onCommentUpdated,
+  infoOpen,
+  onInfoToggle,
 }: {
   comment: DriverComment;
   isOwner: boolean;
@@ -122,6 +124,8 @@ function CommentRow({
   currentCompanyId: string | undefined;
   onDelete: () => void;
   onCommentUpdated: () => void;
+  infoOpen: boolean;
+  onInfoToggle: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [showReply, setShowReply] = useState(false);
@@ -174,6 +178,35 @@ function CommentRow({
             )}
           </div>
         </div>
+        {(comment.source_type || comment.tooltip_text) && !isReply && (
+          <div className="flex items-center gap-1 mb-1 flex-wrap">
+            {comment.source_type && (
+              <span className="text-[10px] font-semibold text-gray-600">{comment.source_type}</span>
+            )}
+            {comment.tooltip_text && (
+              <span className="relative inline-flex">
+                <button
+                  type="button"
+                  className="p-0.5 rounded text-gray-400 hover:text-gray-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-900"
+                  title={comment.tooltip_text ?? undefined}
+                  aria-label="Comment source information"
+                  aria-expanded={infoOpen}
+                  onClick={onInfoToggle}
+                >
+                  <Info size={12} />
+                </button>
+                {infoOpen && (
+                  <span
+                    role="tooltip"
+                    className="absolute left-0 top-full z-20 mt-0.5 w-56 rounded-lg border border-gray-200 bg-white p-2 text-[11px] leading-snug text-gray-700 shadow-md"
+                  >
+                    {comment.tooltip_text}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        )}
         <p className="text-xs text-gray-600 leading-relaxed">{isReply ? comment.comment.slice(2) : comment.comment}</p>
 
         {showReply && (
@@ -207,6 +240,7 @@ export function DriverCard({ driver, creatorName, currentUserId, currentCompanyN
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [showDriverFlagModal, setShowDriverFlagModal] = useState(false);
+  const [openInfoCommentId, setOpenInfoCommentId] = useState<string | null>(null);
   const badge = flagBadge(driver.flag);
   const comments = driver.driver_comments ?? [];
   const visible = showAll ? comments : comments.slice(0, 3);
@@ -296,6 +330,8 @@ export function DriverCard({ driver, creatorName, currentUserId, currentCompanyN
                         currentCompanyId={driver.company_id ?? undefined}
                         onDelete={onCommentUpdated}
                         onCommentUpdated={onCommentUpdated}
+                        infoOpen={openInfoCommentId === c.id}
+                        onInfoToggle={() => setOpenInfoCommentId(prev => (prev === c.id ? null : c.id))}
                       />
                     ))}
                   </div>

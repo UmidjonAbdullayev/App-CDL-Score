@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getUserCredits, decrementCredits, getDailyStats } from '../lib/credits';
-import { CARRIER_POOL, pickDistinctSeeded, COMMENTS_HIGH, COMMENTS_MID } from '../lib/commentPool';
+import { CARRIER_POOL, pickDistinctSeeded, COMMENTS_HIGH, COMMENTS_MID, COMMENTS_LOW } from '../lib/commentPool';
 import type { Driver, Flag, Company } from '../lib/supabase';
 import { DriverCard } from './DriverCard';
 import { AddDriverModal } from './AddDriverModal';
@@ -53,46 +53,258 @@ function nameWords(n: string): string[] {
   return n.toLowerCase().trim().split(/\s+/).filter(Boolean);
 }
 
-function buildSyntheticDriverData(name: string) {
+type SyntheticRpcComment = {
+  company_name: string;
+  comment: string;
+  stars: number;
+  source_type: string | null;
+  tooltip_text: string | null;
+};
+
+function buildSyntheticDriverMetrics(name: string) {
   const nameSeed = name.toLowerCase();
 
-  // Three independent metrics, each 70–99
-  const reliability = seededRand(nameSeed + 'rel', 70, 99);
-  const drugTest    = seededRand(nameSeed + 'drug', 70, 99);
-  const onTime      = seededRand(nameSeed + 'ot', 70, 99);
+  // Weighted flag targeting: 50% green, 25% yellow, 25% red
+  const roll = seededRand(nameSeed + 'flagroll', 1, 100);
+  const flag: Flag = roll <= 50 ? 'green' : roll <= 75 ? 'yellow' : 'red';
 
-  // Score = mean of the three metrics
-  const score = Math.round((reliability + drugTest + onTime) / 3);
+  // Keep metrics aligned with selected flag so the DB-recomputed score matches.
+  const ranges =
+    flag === 'green' ? { min: 80, max: 100, starMin: 42, starMax: 50 } :
+    flag === 'yellow' ? { min: 50, max: 79, starMin: 30, starMax: 40 } :
+    { min: 0, max: 49, starMin: 10, starMax: 28 };
 
-  // Flag: green ≥ 85, yellow ≥ 70, red < 70 (synthetics are always ≥ 70)
-  const flag: Flag = score >= 85 ? 'green' : 'yellow';
-
-  // Stars follow score tier
-  const starsRaw = seededRand(nameSeed + 'stars', score >= 85 ? 42 : 32, score >= 85 ? 50 : 41) / 10;
-
-  const commentCount = seededRand(nameSeed + 'cnt', 2, 4);
-
-  const pool         = score >= 85 ? COMMENTS_HIGH : COMMENTS_MID;
-  const carriers     = pickDistinct(CARRIER_POOL, commentCount, nameSeed + 'co');
-  const commentTexts = pickDistinct(pool, commentCount, nameSeed + 'cm');
-
-  const starMin = score >= 85 ? 4 : 3;
-  const starMax = score >= 85 ? 5 : 4;
-
-  const comments = carriers.map((carrier, i) => ({
-    company_name: carrier,
-    comment: commentTexts[i] ?? pool[i % pool.length],
-    stars: seededRand(nameSeed + 'cs' + i, starMin, starMax),
-  }));
+  const reliability = seededRand(nameSeed + 'rel', ranges.min, ranges.max);
+  const drugTest    = seededRand(nameSeed + 'drug', ranges.min, ranges.max);
+  const onTime      = seededRand(nameSeed + 'ot', ranges.min, ranges.max);
+  const score       = Math.round((reliability + drugTest + onTime) / 3);
+  const starsRaw    = seededRand(nameSeed + 'stars', ranges.starMin, ranges.starMax) / 10;
 
   const displayName = name.trim().replace(/\b\w/g, l => l.toUpperCase());
 
-  return { displayName, score, reliability, drugTest, onTime, flag, starsRaw, comments };
+  return { displayName, score, reliability, drugTest, onTime, flag, starsRaw };
+}
+
+function normalizeHeaderKey(k: string) {
+  return k.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function getCol(row: Record<string, unknown>, names: string[]): unknown {
+  const byNorm = new Map<string, string>();
+  for (const key of Object.keys(row)) {
+    byNorm.set(normalizeHeaderKey(key), key);
+  }
+  for (const name of names) {
+    const orig = byNorm.get(normalizeHeaderKey(name));
+    if (orig === undefined) continue;
+    const v = row[orig];
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'string' && v.trim() === '') continue;
+    return v;
+  }
+  return undefined;
+}
+
+function rowFlagMatchesDriver(row: Record<string, unknown>, flag: Flag): boolean {
+  const raw = getCol(row, [
+    'flag type', 'flag_type', 'flag', 'type', 'tier', 'risk', 'color', 'status',
+  ]);
+  if (raw === undefined || raw === null || String(raw).trim() === '') return false;
+  const s = String(raw).toLowerCase().trim();
+
+  if (flag === 'green') {
+    return (
+      s === 'green' || s === 'g' || s === '1'
+      || s.includes('green') || s.includes('cleared') || s.includes('safe')
+    );
+  }
+  if (flag === 'yellow') {
+    return (
+      s === 'yellow' || s === 'y' || s === '2'
+      || s.includes('yellow') || s.includes('check') || s.includes('amber') || s.includes('caution')
+    );
+  }
+  if (flag === 'red') {
+    return (
+      s === 'red' || s === 'r' || s === '3'
+      || s.includes('red') || s.includes('high risk') || s.includes('risk')
+    );
+  }
+  return false;
+}
+
+function parseStarsFromRow(value: unknown, score: number): number {
+  const fallback = score >= 80 ? 5 : score >= 50 ? 4 : 3;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.min(5, Math.round(value)));
+  }
+  if (value !== undefined && value !== null && String(value).trim() !== '') {
+    const n = Number(String(value));
+    if (Number.isFinite(n)) return Math.max(1, Math.min(5, Math.round(n)));
+  }
+  return fallback;
+}
+
+function commentFromRow(row: Record<string, unknown>): string {
+  const v = getCol(row, ['comments', 'comment', 'carrier comment', 'carrier comments', 'review', 'text']);
+  return v !== undefined ? String(v).trim() : '';
+}
+
+function sourceTextFromRow(row: Record<string, unknown>): string {
+  const v = getCol(row, ['source type', 'source_type', 'source']);
+  return v !== undefined ? String(v).trim() : '';
+}
+
+/** Matches CSV label "CDL Score — Driver History Note" (flexible dash/spacing). */
+function isCdlDriverHistoryNoteSource(source: string): boolean {
+  if (!source) return false;
+  const n = source.toLowerCase().replace(/[—–\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  return n.includes('driver history note') && (n.includes('cdl') || n.includes('score'));
+}
+
+const SYNTHETIC_DATA_TABLES = ['synthetic driver data', 'synthetic_driver_data'] as const;
+
+function normalizeRpcJsonArray(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data) as unknown;
+      return Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function fetchSyntheticDriverCsvRows(): Promise<{ rows: Record<string, unknown>[]; error: Error | null; tableUsed: string | null }> {
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_synthetic_driver_data_rows');
+
+  if (!rpcError) {
+    const fromRpc = normalizeRpcJsonArray(rpcData);
+    if (fromRpc.length > 0) {
+      return { rows: fromRpc, error: null, tableUsed: 'get_synthetic_driver_data_rows (RPC)' };
+    }
+  }
+
+  let lastErr: Error | null = rpcError ? new Error(rpcError.message) : null;
+  for (const table of SYNTHETIC_DATA_TABLES) {
+    const { data, error } = await supabase.from(table).select('*');
+    if (error) {
+      lastErr = new Error(error.message);
+      continue;
+    }
+    return { rows: (data ?? []) as Record<string, unknown>[], error: null, tableUsed: table };
+  }
+  return { rows: [], error: lastErr, tableUsed: null };
+}
+
+function fallbackPoolComments(name: string, score: number): SyntheticRpcComment[] {
+  const nameSeed = name.toLowerCase();
+  const commentCount = seededRand(nameSeed + 'cnt', 2, 4);
+
+  const pool         = score >= 80 ? COMMENTS_HIGH : score >= 50 ? COMMENTS_MID : COMMENTS_LOW;
+  const carriers     = pickDistinct(CARRIER_POOL, commentCount, nameSeed + 'co');
+  const commentTexts = pickDistinct(pool, commentCount, nameSeed + 'cm');
+
+  const starMin = score >= 80 ? 4 : score >= 50 ? 3 : 1;
+  const starMax = score >= 80 ? 5 : score >= 50 ? 4 : 2;
+
+  return carriers.map((carrier, i) => ({
+    company_name: carrier,
+    comment: commentTexts[i] ?? pool[i % pool.length],
+    stars: seededRand(nameSeed + 'cs' + i, starMin, starMax),
+    source_type: null,
+    tooltip_text: null,
+  }));
+}
+
+async function buildCommentsFromSyntheticDriverDataTable(
+  rawName: string,
+  flag: Flag,
+  score: number
+): Promise<SyntheticRpcComment[]> {
+  const { rows: allRows, error: fetchErr, tableUsed } = await fetchSyntheticDriverCsvRows();
+
+  if (import.meta.env.DEV) {
+    if (fetchErr) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[CDL Score] Could not read synthetic driver CSV table (check name, RLS, and that migration ran).',
+        fetchErr.message
+      );
+    } else if (tableUsed) {
+      // eslint-disable-next-line no-console
+      console.info(`[CDL Score] Using CSV table "${tableUsed}" (${allRows.length} rows).`);
+    }
+  }
+
+  if (!allRows.length) return [];
+
+  const withComments = (allRows as Record<string, unknown>[])
+    .filter(r => commentFromRow(r).length > 0)
+    .sort((a, b) => {
+      const idA = String(getCol(a, ['id']) ?? '');
+      const idB = String(getCol(b, ['id']) ?? '');
+      return idA.localeCompare(idB, undefined, { numeric: true });
+    });
+
+  const flagMatched = withComments.filter(r => rowFlagMatchesDriver(r, flag));
+  const pool = flagMatched.length ? flagMatched : withComments;
+
+  if (import.meta.env.DEV && !flagMatched.length && withComments.length) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[CDL Score] No CSV rows matched flag',
+      flag,
+      '— using all rows with comments. Align your "flag type" column with green / yellow / red.'
+    );
+  }
+
+  if (!pool.length) return [];
+
+  const nameSeed = rawName.toLowerCase();
+
+  const cdlHistoryRows = pool.filter(r => isCdlDriverHistoryNoteSource(sourceTextFromRow(r)));
+  const pastCarrierRows = pool.filter(r => !isCdlDriverHistoryNoteSource(sourceTextFromRow(r)));
+
+  const rowToPayload = (row: Record<string, unknown>): SyntheticRpcComment => {
+    const sourceRaw = getCol(row, ['source type', 'source_type', 'source']);
+    const tooltipRaw = getCol(row, ['tooltip text', 'tooltip_text', 'tooltip']);
+    const starsRaw = getCol(row, ['stars', 'star', 'rating']);
+    return {
+      company_name: 'CDL Score Network',
+      comment: commentFromRow(row),
+      stars: parseStarsFromRow(starsRaw, score),
+      source_type: sourceRaw !== undefined ? String(sourceRaw).trim() || null : null,
+      tooltip_text: tooltipRaw !== undefined ? String(tooltipRaw).trim() || null : null,
+    };
+  };
+
+  const pickedRows: Record<string, unknown>[] = [];
+
+  if (cdlHistoryRows.length > 0) {
+    const one = pickDistinct(cdlHistoryRows, 1, nameSeed + 'cdlhist')[0];
+    if (one) pickedRows.push(one);
+  }
+
+  const carrierPickCount = seededRand(nameSeed + 'cnt', 2, 4);
+  if (pastCarrierRows.length > 0) {
+    const n = Math.min(carrierPickCount, pastCarrierRows.length);
+    pickedRows.push(...pickDistinct(pastCarrierRows, n, nameSeed + 'pastcarr'));
+  }
+
+  if (!pickedRows.length) return [];
+
+  return pickedRows.map(rowToPayload);
 }
 
 async function persistSyntheticDriver(name: string): Promise<Driver | null> {
-  const { displayName, score, reliability, drugTest, onTime, flag, starsRaw, comments } =
-    buildSyntheticDriverData(name);
+  const { displayName, score, reliability, drugTest, onTime, flag, starsRaw } =
+    buildSyntheticDriverMetrics(name);
+
+  const fromTable = await buildCommentsFromSyntheticDriverDataTable(name, flag, score);
+  const comments: SyntheticRpcComment[] = fromTable.length ? fromTable : fallbackPoolComments(name, score);
 
   const { data, error } = await supabase.rpc('create_synthetic_driver', {
     p_full_name:   displayName,
@@ -105,7 +317,14 @@ async function persistSyntheticDriver(name: string): Promise<Driver | null> {
     p_comments:    comments,
   });
 
-  if (error || !data) return null;
+  if (error) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('[CDL Score] create_synthetic_driver failed (apply latest Supabase migrations?).', error);
+    }
+    return null;
+  }
+  if (!data) return null;
 
   // Fetch the newly created driver with its comments
   const { data: driver } = await supabase
@@ -117,9 +336,9 @@ async function persistSyntheticDriver(name: string): Promise<Driver | null> {
   return driver as Driver | null;
 }
 
-// ~25% chance of "not found" using a seeded value so it's stable per name
+// ~10% chance of "not found" using a seeded value so it's stable per name
 function shouldShowNotFound(name: string): boolean {
-  return seededRand(name.toLowerCase() + 'notfound', 0, 3) === 0;
+  return seededRand(name.toLowerCase() + 'notfound', 1, 10) === 1;
 }
 
 export function Dashboard() {

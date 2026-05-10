@@ -3,7 +3,11 @@ import { supabase } from '../lib/supabase';
 import { Truck } from 'lucide-react';
 import { SignupPage } from './SignupPage';
 
-export function AuthPage() {
+interface Props {
+  onAwaitingEmailVerification?: (email: string) => void;
+}
+
+export function AuthPage({ onAwaitingEmailVerification }: Props) {
   const [showSignup, setShowSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -11,7 +15,12 @@ export function AuthPage() {
   const [loading, setLoading] = useState(false);
 
   if (showSignup) {
-    return <SignupPage onSwitchToLogin={() => setShowSignup(false)} />;
+    return (
+      <SignupPage
+        onSwitchToLogin={() => setShowSignup(false)}
+        onAwaitingEmailVerification={onAwaitingEmailVerification}
+      />
+    );
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

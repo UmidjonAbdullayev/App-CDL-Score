@@ -4,6 +4,7 @@ import { Truck, ChevronRight, ChevronLeft, Shield, AlertTriangle } from 'lucide-
 
 interface Props {
   onSwitchToLogin: () => void;
+  onAwaitingEmailVerification?: (email: string) => void;
 }
 
 type Step = 1 | 2;
@@ -18,7 +19,7 @@ async function getClientIp(): Promise<string> {
   }
 }
 
-export function SignupPage({ onSwitchToLogin }: Props) {
+export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [companyName, setCompanyName] = useState('');
   const [mcNumber, setMcNumber] = useState('');
@@ -53,9 +54,11 @@ export function SignupPage({ onSwitchToLogin }: Props) {
 
     try {
       // 1. Create the auth user
+      const emailRedirectTo = `${window.location.origin}/`;
       const { data: authData, error: authErr } = await supabase.auth.signUp({
         email: loginEmail.trim(),
         password,
+        options: { emailRedirectTo },
       });
       if (authErr) {
         if (authErr.message.toLowerCase().includes('already registered')) {
@@ -87,8 +90,17 @@ export function SignupPage({ onSwitchToLogin }: Props) {
         throw new Error(msg);
       }
 
-      // RPC succeeded — release the gate and hand the session to App.tsx
+      const needsEmailVerification = !authData.user.email_confirmed_at;
+      if (needsEmailVerification) {
+        registrationGate.abort();
+        await supabase.auth.signOut();
+        setLoading(false);
+        onAwaitingEmailVerification?.(loginEmail.trim());
+        return;
+      }
+
       registrationGate.commit(true);
+      setLoading(false);
     } catch (err: unknown) {
       registrationGate.abort();
       setError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
