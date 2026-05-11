@@ -195,7 +195,7 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
                 <div className="flex items-start gap-2.5 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200">
                   <Shield size={15} className="text-gray-500 mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-gray-600">
-                    You'll get <span className="font-semibold text-gray-900">3 free driver searches</span> as part of your trial.
+                    Get started with CDL driver verification today.
                   </p>
                 </div>
 

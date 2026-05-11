@@ -55,6 +55,8 @@ export interface Company {
   mc_number: string;
   email: string;
   created_at: string;
+  has_purchased?: boolean;
+  used_first_time_offer?: boolean;
 }
 
 export interface DriverComment {

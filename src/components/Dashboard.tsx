@@ -13,6 +13,7 @@ import { AddCommentModal } from './AddCommentModal';
 import { AdminPanel } from './AdminPanel';
 import { StatsBar } from './StatsBar';
 import { PurchaseModal } from './PurchaseModal';
+import { FirstPurchaseModal } from './FirstPurchaseModal';
 import { CarrierUpdatesDropdown } from './CarrierUpdatesDropdown';
 import { MySubmissionsPanel } from './MySubmissionsPanel';
 
@@ -178,6 +179,87 @@ function normalizeRpcJsonArray(data: unknown): Record<string, unknown>[] {
   }
   return [];
 }
+
+const STATIC_DRIVER_SAMPLES: Driver[] = [
+  {
+    id: 'sample-green-driver',
+    full_name: 'Michael Turner',
+    score: 92,
+    reliability_pct: 95,
+    drug_test_pct: 100,
+    on_time_pct: 91,
+    flag: 'green',
+    stars: 5,
+    company_id: null,
+    created_at: '2026-05-11T00:00:00Z',
+    driver_comments: [
+      {
+        id: 'sample-green-comment-1',
+        driver_id: 'sample-green-driver',
+        company_name: 'CDL Score',
+        comment: 'Driver arrived prepared, communicated professionally throughout onboarding, and completed orientation without issues. Strong reliability history and no known attendance concerns.',
+        stars: 5,
+        source_type: 'CDL Score — Driver History Note',
+        tooltip_text: null,
+        user_id: null,
+        company_id: null,
+        created_at: '2026-05-11T00:00:00Z',
+      },
+    ],
+  },
+  {
+    id: 'sample-yellow-driver',
+    full_name: 'Brandon Cole',
+    score: 67,
+    reliability_pct: 70,
+    drug_test_pct: 88,
+    on_time_pct: 64,
+    flag: 'yellow',
+    stars: 4,
+    company_id: null,
+    created_at: '2026-05-11T00:00:00Z',
+    driver_comments: [
+      {
+        id: 'sample-yellow-comment-1',
+        driver_id: 'sample-yellow-driver',
+        company_name: 'CDL Score',
+        comment: 'We booked travel after he confirmed, but he needed too many reminders for check calls. It was annoying more than anything.',
+        stars: 3,
+        source_type: 'Past Driver Comment',
+        tooltip_text: null,
+        user_id: null,
+        company_id: null,
+        created_at: '2026-05-11T00:00:00Z',
+      },
+    ],
+  },
+  {
+    id: 'sample-red-driver',
+    full_name: 'Travis Boone',
+    score: 38,
+    reliability_pct: 41,
+    drug_test_pct: 52,
+    on_time_pct: 33,
+    flag: 'red',
+    stars: 2,
+    company_id: null,
+    created_at: '2026-05-11T00:00:00Z',
+    driver_comments: [
+      {
+        id: 'sample-red-comment-1',
+        driver_id: 'sample-red-driver',
+        company_name: 'CDL Score',
+        comment: 'The driver worked with us briefly, then he refused the load after confirming pickup. Recovery costs added up quickly. The company marked him as a serious risk.',
+        stars: 2,
+        source_type: 'Past Carrier Comment',
+        tooltip_text: null,
+        user_id: null,
+        company_id: null,
+        created_at: '2026-05-11T00:00:00Z',
+      },
+    ],
+  },
+];
 
 async function fetchSyntheticDriverCsvRows(): Promise<{ rows: Record<string, unknown>[]; error: Error | null; tableUsed: string | null }> {
   const { data: rpcData, error: rpcError } = await supabase.rpc('get_synthetic_driver_data_rows');
@@ -349,6 +431,8 @@ export function Dashboard() {
   const [company, setCompany] = useState<Company>();
   const [credits, setCredits] = useState<number>(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [hasPendingPurchase, setHasPendingPurchase] = useState(false);
+  const [companyRefresh, setCompanyRefresh] = useState(0);
 
   // ── Drivers ──────────────────────────────────────────────────────────────
   const [allDrivers, setAllDrivers] = useState<Driver[]>([]);
@@ -377,6 +461,7 @@ export function Dashboard() {
   const [showAddDriver, setShowAddDriver] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
+  const [showFirstPurchase, setShowFirstPurchase] = useState(false);
   const [commentTarget, setCommentTarget] = useState<Driver | null>(null);
 
   // ── Stats ────────────────────────────────────────────────────────────────
@@ -409,6 +494,15 @@ export function Dashboard() {
       if (cu?.company_id) {
         const { data: co } = await supabase.from('companies').select('*').eq('id', cu.company_id).maybeSingle();
         if (co) setCompany(co);
+
+        // Check for pending purchases
+        const { data: pending } = await supabase
+          .from('purchase_requests')
+          .select('id')
+          .eq('company_id', cu.company_id)
+          .eq('status', 'pending')
+          .limit(1);
+        setHasPendingPurchase(!!pending && pending.length > 0);
       }
 
       setDailyStats(stats);
@@ -419,7 +513,7 @@ export function Dashboard() {
 
       setInitLoading(false);
     })();
-  }, []);
+  }, [companyRefresh]);
 
   const fetchDrivers = async () => {
     const { data, error } = await supabase
@@ -560,7 +654,7 @@ export function Dashboard() {
   // ── Derived ───────────────────────────────────────────────────────────────
   const showResults = searchKey !== null && searchKey === inputKey;
   const results = showResults ? (cache.current.get(searchKey) ?? filterDrivers(query, flagFilter)) : [];
-  const exampleDrivers = allDrivers.slice(0, 3);
+  const exampleDrivers = STATIC_DRIVER_SAMPLES;
   const hasActiveFilter = flagFilter !== 'all';
   const creditsLow = credits > 0 && credits <= 5;
   const noCredits = credits === 0;
@@ -615,6 +709,16 @@ export function Dashboard() {
               <span>Searches left: <strong>{credits}</strong></span>
             </div>
 
+            {/* Top Up button */}
+            {company && (
+              <button
+                onClick={() => setShowPurchase(true)}
+                className="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition"
+              >
+                Top Up
+              </button>
+            )}
+
             {/* Admin */}
             {isAdmin && (
               <button
@@ -651,8 +755,32 @@ export function Dashboard() {
 
         <MySubmissionsPanel companyId={company?.id} refreshTrigger={submissionsRefresh} />
 
-        {/* No-credits banner */}
-        {noCredits && (
+        {/* First-time purchase offer */}
+        {credits === 0 && company && !company.used_first_time_offer && (
+          <div className="mb-5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-5 py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                  Get your first tryout CDL driver search for just{' '}
+                  <span className="text-green-600 font-bold">$3.99</span>
+                  <span className="text-gray-500 line-through ml-1">$6.89</span>
+                </h3>
+                <p className="text-xs text-gray-600">
+                  Start evaluating drivers with our comprehensive verification system.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowFirstPurchase(true)}
+                className="flex-shrink-0 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition"
+              >
+                Buy Now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* No-credits banner for returning users */}
+        {credits === 0 && company && company.used_first_time_offer && (
           <div className="mb-5 flex items-start gap-3 bg-gray-900 text-white rounded-xl px-5 py-4">
             <Lock size={18} className="text-gray-400 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
@@ -668,8 +796,21 @@ export function Dashboard() {
           </div>
         )}
 
+        {/* Payment processing popup */}
+        {hasPendingPurchase && (
+          <div className="mb-5 flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-5 py-4">
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-blue-900">Payment Processing</p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                Your payment is currently being processed. Access is usually activated within a few minutes after payment verification.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Low-credits warning */}
-        {creditsLow && (
+        {creditsLow && company && company.used_first_time_offer && (
           <div className="mb-5 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
             <AlertTriangle size={15} className="text-amber-600 flex-shrink-0" />
             <p className="text-xs text-amber-800 font-medium flex-1">
@@ -693,8 +834,8 @@ export function Dashboard() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={noCredits}
-              placeholder={noCredits ? 'No searches remaining' : 'Search by driver name… press Enter'}
+              disabled={noCredits || hasPendingPurchase}
+              placeholder={hasPendingPurchase ? 'Payment processing...' : noCredits ? 'No searches remaining' : 'Search by driver name… press Enter'}
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-300 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
@@ -875,6 +1016,16 @@ export function Dashboard() {
       )}
 
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+
+      {showFirstPurchase && company && (
+        <FirstPurchaseModal
+          companyId={company.id}
+          companyName={company.name}
+          companyEmail={company.email}
+          onClose={() => setShowFirstPurchase(false)}
+          onSuccess={() => setCompanyRefresh(r => r + 1)}
+        />
+      )}
 
       {showPurchase && company && (
         <PurchaseModal

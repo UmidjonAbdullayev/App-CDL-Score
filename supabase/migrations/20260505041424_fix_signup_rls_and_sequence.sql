@@ -41,9 +41,9 @@ BEGIN
   VALUES (p_company_id, p_user_id)
   ON CONFLICT DO NOTHING;
 
-  -- Init 3 free-trial search credits
+  -- Init 0 search credits (no free trial)
   INSERT INTO user_credits (user_id, company_id, search_credits, updated_at)
-  VALUES (p_user_id, p_company_id, 3, now())
+  VALUES (p_user_id, p_company_id, 0, now())
   ON CONFLICT (user_id) DO NOTHING;
 
   RETURN json_build_object('success', true);
