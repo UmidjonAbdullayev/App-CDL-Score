@@ -13,6 +13,8 @@ import { AddCommentModal } from './AddCommentModal';
 import { AdminPanel } from './AdminPanel';
 import { StatsBar } from './StatsBar';
 import { PurchaseModal } from './PurchaseModal';
+import { CarrierUpdatesDropdown } from './CarrierUpdatesDropdown';
+import { MySubmissionsPanel } from './MySubmissionsPanel';
 
 type FilterFlag = Flag | 'all';
 const FLAG_OPTIONS: { value: FilterFlag; label: string }[] = [
@@ -380,6 +382,7 @@ export function Dashboard() {
   // ── Stats ────────────────────────────────────────────────────────────────
   const [dailyStats, setDailyStats] = useState({ searches_today: 0, money_saved: 0 });
   const [initLoading, setInitLoading] = useState(true);
+  const [submissionsRefresh, setSubmissionsRefresh] = useState(0);
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -632,6 +635,12 @@ export function Dashboard() {
         </div>
       </header>
 
+      <div className="bg-white border-b border-gray-100">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-1.5 flex justify-end">
+          <CarrierUpdatesDropdown />
+        </div>
+      </div>
+
       {/* ── Main ── */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {/* Page heading */}
@@ -639,6 +648,8 @@ export function Dashboard() {
           <h1 className="text-xl font-bold text-gray-900">Driver Search</h1>
           <p className="text-sm text-gray-500 mt-0.5">Search and evaluate CDL-A drivers across carrier networks.</p>
         </div>
+
+        <MySubmissionsPanel companyId={company?.id} refreshTrigger={submissionsRefresh} />
 
         {/* No-credits banner */}
         {noCredits && (
@@ -844,7 +855,10 @@ export function Dashboard() {
           companyName={company?.name}
           currentUserId={userId}
           onClose={() => setShowAddDriver(false)}
-          onSuccess={() => { fetchDrivers(); setShowAddDriver(false); }}
+          onSuccess={() => {
+            fetchDrivers();
+            setSubmissionsRefresh(v => v + 1);
+          }}
         />
       )}
 

@@ -106,3 +106,36 @@ export interface FlagReport {
   status: 'open' | 'resolved';
   created_at: string;
 }
+
+export type DriverSubmissionStatus = 'pending' | 'approved' | 'rejected';
+
+export interface DriverSubmission {
+  id: string;
+  company_id: string;
+  submitted_by_user_id: string | null;
+  full_name: string;
+  score: number;
+  reliability_pct: number;
+  drug_test_pct: number;
+  on_time_pct: number;
+  stars: number;
+  flag: Flag;
+  pending_comment: string | null;
+  pending_comment_stars: number | null;
+  attachment_path: string | null;
+  status: DriverSubmissionStatus;
+  admin_response: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  resulting_driver_id: string | null;
+  created_at: string;
+}
+
+export interface CarrierAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  is_active: boolean;
+  published_at: string;
+  created_by: string | null;
+}

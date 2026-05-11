@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { X, Check, Trash2, Plus, RefreshCw, Search, Edit3, ChevronUp, Shield, Ban, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { setCredits, addCredits } from '../lib/credits';
-import type { Company, Driver, PurchaseRequest, FlagReport } from '../lib/supabase';
+import type { Company, Driver, PurchaseRequest, FlagReport, DriverSubmission, CarrierAnnouncement } from '../lib/supabase';
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks';
+type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks' | 'submissions' | 'announcements';
+
+type DriverSubmissionRow = DriverSubmission & { companies?: { name: string } | null };
 
 interface CompanyWithCredits extends Company {
   search_credits: number;
@@ -65,6 +67,16 @@ export function AdminPanel({ onClose }: Props) {
   const [banningIp, setBanningIp] = useState<string | null>(null);
   const [banReason, setBanReason] = useState('');
   const [banLoading, setBanLoading] = useState(false);
+
+  const [submissions, setSubmissions] = useState<DriverSubmissionRow[]>([]);
+  const [reviewOpen, setReviewOpen] = useState<{ id: string; mode: 'approve' | 'reject' } | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+
+  const [announcements, setAnnouncements] = useState<CarrierAnnouncement[]>([]);
+  const [annTitle, setAnnTitle] = useState('');
+  const [annBody, setAnnBody] = useState('');
+  const [annSubmitting, setAnnSubmitting] = useState(false);
 
   const [status, setStatus] = useState('');
   const [statusOk, setStatusOk] = useState(true);
@@ -124,6 +136,22 @@ export function AdminPanel({ onClose }: Props) {
     setReports((data as FlagReport[]) ?? []);
   };
 
+  const loadSubmissions = async () => {
+    const { data } = await supabase
+      .from('driver_submissions')
+      .select('*, companies(name)')
+      .order('created_at', { ascending: false });
+    setSubmissions((data as DriverSubmissionRow[]) ?? []);
+  };
+
+  const loadAnnouncements = async () => {
+    const { data } = await supabase
+      .from('carrier_announcements')
+      .select('*')
+      .order('published_at', { ascending: false });
+    setAnnouncements((data as CarrierAnnouncement[]) ?? []);
+  };
+
   const loadNetworks = async () => {
     const { data: ipRows } = await supabase
       .from('company_ip_log')
@@ -162,12 +190,18 @@ export function AdminPanel({ onClose }: Props) {
   };
 
   useEffect(() => {
+    loadSubmissions();
+  }, []);
+
+  useEffect(() => {
     if (tab === 'companies') loadCompanies();
     else if (tab === 'drivers') loadDrivers();
     else if (tab === 'requests') loadRequests();
     else if (tab === 'credits') loadCompanies();
     else if (tab === 'reports') loadReports();
     else if (tab === 'networks') loadNetworks();
+    else if (tab === 'submissions') loadSubmissions();
+    else if (tab === 'announcements') loadAnnouncements();
   }, [tab]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -331,6 +365,78 @@ export function AdminPanel({ onClose }: Props) {
   const openReports = reports.filter(r => r.status === 'open').length;
   const pendingReqs = requests.filter(r => r.status === 'pending').length;
   const bannedCount = ipEntries.filter(e => e.is_banned).length;
+  const pendingSubmissions = submissions.filter(s => s.status === 'pending').length;
+
+  const openSubmissionAttachment = async (path: string | null) => {
+    if (!path) return;
+    const { data, error } = await supabase.storage.from('driver-submission-docs').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) {
+      showStatus('Could not open attachment.', false);
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const submitReview = async () => {
+    if (!reviewOpen) return;
+    if (reviewOpen.mode === 'reject' && !reviewNote.trim()) {
+      showStatus('Please enter a reason for rejection.', false);
+      return;
+    }
+    setReviewBusy(true);
+    const rpc =
+      reviewOpen.mode === 'approve' ? 'approve_driver_submission' : 'reject_driver_submission';
+    const { data, error } = await supabase.rpc(rpc, {
+      p_submission_id: reviewOpen.id,
+      p_admin_note: reviewNote.trim(),
+    });
+    setReviewBusy(false);
+    if (error) {
+      showStatus(error.message, false);
+      return;
+    }
+    const res = data as { success?: boolean; error?: string };
+    if (!res?.success) {
+      showStatus(res?.error ?? 'Action failed.', false);
+      return;
+    }
+    showStatus(reviewOpen.mode === 'approve' ? 'Driver record approved and published.' : 'Submission rejected.');
+    setReviewOpen(null);
+    setReviewNote('');
+    loadSubmissions();
+    loadDrivers();
+  };
+
+  const publishAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annTitle.trim() || !annBody.trim()) {
+      showStatus('Title and message are required.', false);
+      return;
+    }
+    setAnnSubmitting(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('carrier_announcements').insert({
+      title: annTitle.trim(),
+      body: annBody.trim(),
+      is_active: true,
+      created_by: user?.id ?? null,
+    });
+    setAnnSubmitting(false);
+    if (error) {
+      showStatus(error.message, false);
+      return;
+    }
+    showStatus('Announcement published.');
+    setAnnTitle('');
+    setAnnBody('');
+    loadAnnouncements();
+  };
+
+  const toggleAnnouncement = async (id: string, isActive: boolean) => {
+    const { error } = await supabase.from('carrier_announcements').update({ is_active: !isActive }).eq('id', id);
+    if (error) { showStatus(error.message, false); return; }
+    loadAnnouncements();
+  };
 
   const tabs: { key: Tab; label: string; badge?: number }[] = [
     { key: 'requests', label: 'Requests', badge: pendingReqs },
@@ -338,6 +444,8 @@ export function AdminPanel({ onClose }: Props) {
     { key: 'drivers', label: 'Drivers' },
     { key: 'credits', label: 'Credits' },
     { key: 'reports', label: 'Reports', badge: openReports },
+    { key: 'submissions', label: 'Submissions', badge: pendingSubmissions > 0 ? pendingSubmissions : undefined },
+    { key: 'announcements', label: 'Updates' },
     { key: 'networks', label: 'Networks', badge: bannedCount > 0 ? bannedCount : undefined },
   ];
 
@@ -765,8 +873,182 @@ export function AdminPanel({ onClose }: Props) {
               </div>
             </div>
           )}
+
+          {/* ── DRIVER SUBMISSIONS ── */}
+          {tab === 'submissions' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">
+                Carrier-submitted driver records. Approve to publish to the network; reject with a note they will see under My submitted records.
+              </p>
+              {submissions.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">No submissions yet.</p>
+              )}
+              <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                {submissions.map(s => (
+                  <div
+                    key={s.id}
+                    className={`border rounded-xl p-4 ${
+                      s.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200 bg-gray-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-gray-900">{s.full_name}</p>
+                        <p className="text-xs text-gray-500">{s.companies?.name ?? 'Unknown company'}</p>
+                        <p className="text-[11px] text-gray-400 mt-1">{new Date(s.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-gray-600 mt-2">
+                          Score {s.score} · {s.flag} · stars {s.stars}
+                        </p>
+                        {s.pending_comment && (
+                          <p className="text-xs text-gray-700 mt-2 bg-white border border-gray-100 rounded-lg px-2 py-1.5">
+                            {s.pending_comment}
+                          </p>
+                        )}
+                        {s.admin_response && (
+                          <p className="text-[11px] text-gray-600 mt-2">
+                            <span className="font-semibold">Admin note: </span>{s.admin_response}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5 items-end flex-shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          s.status === 'pending' ? 'bg-amber-200 text-amber-900'
+                            : s.status === 'approved' ? 'bg-emerald-200 text-emerald-900'
+                            : 'bg-red-200 text-red-900'
+                        }`}>
+                          {s.status}
+                        </span>
+                        {s.attachment_path && (
+                          <button
+                            type="button"
+                            onClick={() => openSubmissionAttachment(s.attachment_path)}
+                            className="text-[11px] font-semibold text-gray-700 hover:underline"
+                          >
+                            View attachment
+                          </button>
+                        )}
+                        {s.status === 'pending' && (
+                          <div className="flex gap-1.5 mt-1">
+                            <button
+                              type="button"
+                              onClick={() => { setReviewOpen({ id: s.id, mode: 'approve' }); setReviewNote(''); }}
+                              className="px-2.5 py-1 bg-emerald-600 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-700"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setReviewOpen({ id: s.id, mode: 'reject' }); setReviewNote(''); }}
+                              className="px-2.5 py-1 bg-red-600 text-white text-[11px] font-semibold rounded-lg hover:bg-red-700"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── ANNOUNCEMENTS ── */}
+          {tab === 'announcements' && (
+            <div className="space-y-4">
+              <form onSubmit={publishAnnouncement} className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Publish update</p>
+                <input
+                  value={annTitle}
+                  onChange={e => setAnnTitle(e.target.value)}
+                  placeholder="Title (e.g. Holiday support hours)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <textarea
+                  value={annBody}
+                  onChange={e => setAnnBody(e.target.value)}
+                  placeholder="Message to carriers…"
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+                <button
+                  type="submit"
+                  disabled={annSubmitting}
+                  className="w-full bg-gray-900 text-white py-2 rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                >
+                  {annSubmitting ? 'Publishing…' : 'Publish to dashboard'}
+                </button>
+              </form>
+
+              <p className="text-xs text-gray-500">Active items appear in the Updates menu on the carrier dashboard.</p>
+              <div className="space-y-2 max-h-[320px] overflow-y-auto">
+                {announcements.map(a => (
+                  <div key={a.id} className="border border-gray-200 rounded-lg px-3 py-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{a.title}</p>
+                      <p className="text-[11px] text-gray-400">{new Date(a.published_at).toLocaleString()}</p>
+                      <p className={`text-[10px] font-bold mt-1 ${a.is_active ? 'text-emerald-600' : 'text-gray-400'}`}>
+                        {a.is_active ? 'ACTIVE' : 'Hidden'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleAnnouncement(a.id, a.is_active)}
+                      className="text-[11px] font-semibold text-gray-600 hover:text-gray-900 flex-shrink-0"
+                    >
+                      {a.is_active ? 'Unpublish' : 'Publish'}
+                    </button>
+                  </div>
+                ))}
+                {announcements.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-6">No announcements yet.</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {reviewOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full px-6 py-5">
+            <h3 className="text-sm font-bold text-gray-900 mb-1">
+              {reviewOpen.mode === 'approve' ? 'Approve driver record' : 'Reject submission'}
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              {reviewOpen.mode === 'approve'
+                ? 'Optional note to the carrier (e.g. thank you or edits applied).'
+                : 'Explain why this was rejected — the carrier will see this in My submitted records.'}
+            </p>
+            <textarea
+              value={reviewNote}
+              onChange={e => setReviewNote(e.target.value)}
+              placeholder={reviewOpen.mode === 'reject' ? 'Reason (required)…' : 'Optional note…'}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 mb-4"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setReviewOpen(null); setReviewNote(''); }}
+                className="flex-1 border border-gray-300 py-2 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reviewBusy}
+                onClick={submitReview}
+                className={`flex-1 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${
+                  reviewOpen.mode === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {reviewBusy ? 'Saving…' : reviewOpen.mode === 'approve' ? 'Approve' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ban IP modal */}
       {banningIp && (
