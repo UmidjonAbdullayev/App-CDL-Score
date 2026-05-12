@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Trash2, Plus, RefreshCw, Search, Edit3, ChevronUp, Shield, Ban, AlertTriangle } from 'lucide-react';
+import { X, Check, Trash2, Plus, RefreshCw, Search, Edit3, ChevronUp, Shield, Ban, AlertTriangle, MessageSquare, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { setCredits, addCredits } from '../lib/credits';
-import type { Company, Driver, PurchaseRequest, FlagReport, DriverSubmission, CarrierAnnouncement } from '../lib/supabase';
+import type { AppSetting, ChatMessage, Company, Driver, PurchaseRequest, FlagReport, DriverSubmission, CarrierAnnouncement } from '../lib/supabase';
 
 interface Props {
   onClose: () => void;
+  initialTab?: Tab;
 }
 
-type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks' | 'submissions' | 'announcements';
+type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks' | 'submissions' | 'announcements' | 'chat';
 
 type DriverSubmissionRow = DriverSubmission & { companies?: { name: string } | null };
 
@@ -37,8 +38,8 @@ interface BannedIp {
   created_at: string;
 }
 
-export function AdminPanel({ onClose }: Props) {
-  const [tab, setTab] = useState<Tab>('requests');
+export function AdminPanel({ onClose, initialTab }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'requests');
 
   const [companies, setCompanies] = useState<CompanyWithCredits[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -80,6 +81,11 @@ export function AdminPanel({ onClose }: Props) {
 
   const [status, setStatus] = useState('');
   const [statusOk, setStatusOk] = useState(true);
+  const [subscriptionMode, setSubscriptionMode] = useState(false);
+  const [chatCompanyId, setChatCompanyId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   const showStatus = (msg: string, ok = true) => {
     setStatus(msg);
@@ -194,6 +200,21 @@ export function AdminPanel({ onClose }: Props) {
   }, []);
 
   useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'subscription_mode').maybeSingle();
+        if (error) throw error;
+        setSubscriptionMode(data?.value === 'true');
+      } catch (error) {
+        console.error('Subscription mode load failed:', error);
+        setSubscriptionMode(false);
+        showStatus('Subscription settings unavailable. Make sure the database migration has been applied.', false);
+      }
+      if (initialTab === 'chat') setTab('chat');
+    })();
+  }, [initialTab]);
+
+  useEffect(() => {
     if (tab === 'companies') loadCompanies();
     else if (tab === 'drivers') loadDrivers();
     else if (tab === 'requests') loadRequests();
@@ -202,7 +223,22 @@ export function AdminPanel({ onClose }: Props) {
     else if (tab === 'networks') loadNetworks();
     else if (tab === 'submissions') loadSubmissions();
     else if (tab === 'announcements') loadAnnouncements();
+    else if (tab === 'chat') {
+      loadCompanies();
+      loadChatMessages();
+    }
   }, [tab]);
+
+  useEffect(() => {
+    if (tab === 'chat' && companies.length > 0 && !chatCompanyId) {
+      setChatCompanyId(companies[0].id);
+    }
+  }, [tab, companies, chatCompanyId]);
+
+  useEffect(() => {
+    if (!chatCompanyId) return;
+    loadChatMessages();
+  }, [chatCompanyId]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const deleteCompany = async (id: string) => {
@@ -302,6 +338,55 @@ export function AdminPanel({ onClose }: Props) {
     if (error) { showStatus('Failed to remove ban.', false); return; }
     showStatus(`Ban removed for ${ip}.`);
     loadNetworks();
+  };
+
+  const updateSubscriptionMode = async (enabled: boolean) => {
+    const { error } = await supabase.from('app_settings').upsert({
+      key: 'subscription_mode',
+      value: enabled ? 'true' : 'false',
+    });
+    if (error) {
+      showStatus('Failed to update subscription mode: ' + error.message, false);
+      return;
+    }
+    setSubscriptionMode(enabled);
+    showStatus(`Subscription mode ${enabled ? 'enabled' : 'disabled'}.`);
+  };
+
+  const loadChatMessages = async () => {
+    if (!chatCompanyId) return;
+    setChatLoading(true);
+    const { data, error } = await supabase
+      .from('admin_chat_messages')
+      .select('*')
+      .eq('company_id', chatCompanyId)
+      .order('created_at', { ascending: true });
+    setChatLoading(false);
+    if (error) {
+      console.error('Chat load failed:', error);
+      setChatMessages([]);
+      showStatus('Failed to load chat messages. Ensure the chat table exists.', false);
+      return;
+    }
+    setChatMessages((data as ChatMessage[]) ?? []);
+  };
+
+  const sendChatMessage = async () => {
+    if (!chatCompanyId || !chatInput.trim()) return;
+    setChatLoading(true);
+    const { error } = await supabase.from('admin_chat_messages').insert({
+      company_id: chatCompanyId,
+      sender_role: 'admin',
+      message: chatInput.trim(),
+    });
+    if (error) {
+      setChatLoading(false);
+      showStatus('Failed to send chat message: ' + error.message, false);
+      return;
+    }
+    setChatInput('');
+    await loadChatMessages();
+    setChatLoading(false);
   };
 
   const handleCreditSubmit = async (e: React.FormEvent) => {
@@ -446,6 +531,7 @@ export function AdminPanel({ onClose }: Props) {
     { key: 'reports', label: 'Reports', badge: openReports },
     { key: 'submissions', label: 'Submissions', badge: pendingSubmissions > 0 ? pendingSubmissions : undefined },
     { key: 'announcements', label: 'Updates' },
+    { key: 'chat', label: 'Carrier Chat' },
     { key: 'networks', label: 'Networks', badge: bannedCount > 0 ? bannedCount : undefined },
   ];
 
@@ -487,6 +573,21 @@ export function AdminPanel({ onClose }: Props) {
             {status}
           </div>
         )}
+
+        <div className="mx-4 mt-4 px-4 py-4 rounded-2xl border border-gray-200 bg-gray-50 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Subscription mode</p>
+            <p className="text-xs text-gray-500">Toggle purchase flow between per-search credits and subscription-only plans.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => updateSubscriptionMode(!subscriptionMode)}
+            className={`relative inline-flex h-8 w-16 items-center rounded-full transition ${subscriptionMode ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            aria-pressed={subscriptionMode}
+          >
+            <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition ${subscriptionMode ? 'translate-x-8' : 'translate-x-1'}`} />
+          </button>
+        </div>
 
         <div className="p-6">
 
@@ -1006,8 +1107,111 @@ export function AdminPanel({ onClose }: Props) {
               </div>
             </div>
           )}
+
+          {tab === 'chat' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Carrier chat</h3>
+                  <p className="text-xs text-gray-500">Select a carrier on the left and send messages directly from admin.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => loadChatMessages()}
+                  className="text-xs font-semibold text-gray-700 hover:text-gray-900"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <div className="grid lg:grid-cols-[260px_1fr] gap-4">
+                <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Carriers</div>
+                  <div className="max-h-[520px] overflow-y-auto">
+                    {companies.length === 0 ? (
+                      <p className="p-4 text-xs text-gray-500">No carrier companies available.</p>
+                    ) : companies.map(c => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() => setChatCompanyId(c.id)}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-100 transition ${chatCompanyId === c.id ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
+                      >
+                        <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{c.email}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border border-gray-200 rounded-2xl bg-white p-4 flex flex-col h-[520px]">
+                  {!chatCompanyId ? (
+                    <div className="flex-1 flex items-center justify-center text-sm text-gray-500">Select a carrier to view chat messages.</div>
+                  ) : (
+                    <>
+                      <div className="mb-4">
+                        <p className="text-sm font-semibold text-gray-900">{companies.find(c => c.id === chatCompanyId)?.name ?? 'Carrier chat'}</p>
+                        <p className="text-xs text-gray-500">{companies.find(c => c.id === chatCompanyId)?.email}</p>
+                      </div>
+                      <div className="flex-1 overflow-y-auto space-y-3 px-1 py-2 border-t border-b border-gray-100">
+                        {chatLoading ? (
+                          <div className="text-xs text-gray-500">Loading messages…</div>
+                        ) : chatMessages.length === 0 ? (
+                          <div className="text-xs text-gray-500">No messages yet. Send the first message below.</div>
+                        ) : (
+                          chatMessages.map(message => (
+                            <div
+                              key={message.id}
+                              className={`max-w-[80%] ${message.sender_role === 'admin' ? 'ml-auto bg-indigo-600 text-white' : 'bg-gray-100 text-gray-900'} rounded-2xl px-4 py-3 text-sm`}
+                            >
+                              <div className={`mb-1 text-[11px] uppercase tracking-[0.08em] font-semibold ${message.sender_role === 'admin' ? 'text-indigo-100' : 'text-gray-500'}`}>
+                                {message.sender_role === 'admin' ? 'Admin' : 'Carrier'}
+                              </div>
+                              <p>{message.message}</p>
+                              <div className="mt-2 text-[10px] text-gray-400">{new Date(message.created_at).toLocaleString()}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-4">
+                        <textarea
+                          value={chatInput}
+                          onChange={e => setChatInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+                          placeholder="Type a message…\nPress Enter to send, Shift+Enter for a new line."
+                          rows={4}
+                          className="w-full border border-gray-300 rounded-2xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none"
+                        />
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={sendChatMessage}
+                            disabled={chatLoading || !chatInput.trim()}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                          >
+                            <Send size={14} />
+                            Send message
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => { setTab('chat'); if (companies.length > 0) setChatCompanyId(companies[0].id); }}
+        className="fixed bottom-6 right-6 z-[55] flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition"
+        title="Open carrier chat"
+      >
+        <MessageSquare size={16} />
+        <span className="text-sm font-semibold">Open Chat</span>
+      </button>
 
       {reviewOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">

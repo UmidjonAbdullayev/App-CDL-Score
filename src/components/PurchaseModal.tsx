@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, CheckCircle, Zap, Star, Sliders } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Confetti } from './Confetti';
@@ -8,31 +8,34 @@ interface Props {
   companyName: string;
   companyEmail: string;
   onClose: () => void;
+  subscriptionMode: boolean;
 }
 
 const PRICE_PER_SEARCH = 6.89;
 const MIN_CUSTOM = 3;
 
-type PlanKey = 'single' | 'five' | 'ten' | 'fifty' | 'hundred' | 'custom';
+type PlanKey = 'single' | 'five' | 'ten' | 'fifty' | 'hundred' | 'custom' | 'standard' | 'unlimited';
 
 interface Plan {
   key: PlanKey;
   name: string;
   price: number;
   searches: number;
-  perSearch: string;
+  summary: string;
+  perSearch?: string;
   savings: string | null;
   badge: string | null;
   icon: React.ReactNode;
   highlight: boolean;
 }
 
-const PLANS: Plan[] = [
+const PER_SEARCH_PLANS: Plan[] = [
   {
     key: 'single',
     name: '1 Driver Search',
     price: 6.89,
     searches: 1,
+    summary: 'Pay-per-search',
     perSearch: '$6.89',
     savings: null,
     badge: null,
@@ -44,6 +47,7 @@ const PLANS: Plan[] = [
     name: '5 Driver Searches',
     price: 33.3,
     searches: 5,
+    summary: 'Bundle savings',
     perSearch: '$6.66',
     savings: 'Save $1.95 vs. individual',
     badge: null,
@@ -55,6 +59,7 @@ const PLANS: Plan[] = [
     name: '10 Driver Searches',
     price: 59.90,
     searches: 10,
+    summary: 'Popular bundle',
     perSearch: '$5.99',
     savings: 'Save $8.90 vs. individual',
     badge: 'Popular',
@@ -66,6 +71,7 @@ const PLANS: Plan[] = [
     name: '50 Driver Searches',
     price: 262.50,
     searches: 50,
+    summary: 'Best value bundle',
     perSearch: '$5.25',
     savings: 'Save $81.50 vs. individual',
     badge: 'Best Value',
@@ -77,6 +83,7 @@ const PLANS: Plan[] = [
     name: '100 Driver Searches',
     price: 499.00,
     searches: 100,
+    summary: 'Large bundle',
     perSearch: '$4.99',
     savings: 'Save $190.00 vs. individual',
     badge: null,
@@ -88,6 +95,7 @@ const PLANS: Plan[] = [
     name: 'Custom',
     price: 0,
     searches: 0,
+    summary: `Minimum ${MIN_CUSTOM} searches`,
     perSearch: `$${PRICE_PER_SEARCH}`,
     savings: null,
     badge: null,
@@ -96,8 +104,34 @@ const PLANS: Plan[] = [
   },
 ];
 
-export function PurchaseModal({ companyId, companyName, companyEmail, onClose }: Props) {
-  const [selectedPlan, setSelectedPlan] = useState<PlanKey>('ten');
+const SUBSCRIPTION_PLANS: Plan[] = [
+  {
+    key: 'standard',
+    name: 'Standard Subscription',
+    price: 199,
+    searches: 70,
+    summary: '70 searches per month with all qualities included',
+    savings: null,
+    badge: 'Monthly',
+    icon: <Star size={16} />,
+    highlight: true,
+  },
+  {
+    key: 'unlimited',
+    name: 'Unlimited Subscription',
+    price: 499,
+    searches: 999999,
+    summary: 'Unlimited use plus custom agent support and driver data',
+    savings: null,
+    badge: 'Best Value',
+    icon: <Zap size={16} />,
+    highlight: false,
+  },
+];
+
+export function PurchaseModal({ companyId, companyName, companyEmail, onClose, subscriptionMode }: Props) {
+  const plans = subscriptionMode ? SUBSCRIPTION_PLANS : PER_SEARCH_PLANS;
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey>(subscriptionMode ? 'standard' : 'ten');
   const [customCount, setCustomCount] = useState(MIN_CUSTOM);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -105,11 +139,15 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
   const [sentPlan, setSentPlan] = useState<{ searches: number; total: string } | null>(null);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    setSelectedPlan(subscriptionMode ? 'standard' : 'ten');
+  }, [subscriptionMode]);
+
   const getOrderDetails = () => {
-    if (selectedPlan === 'custom') {
+    if (!subscriptionMode && selectedPlan === 'custom') {
       return { searches: customCount, total: (customCount * PRICE_PER_SEARCH).toFixed(2) };
     }
-    const plan = PLANS.find(p => p.key === selectedPlan)!;
+    const plan = plans.find(p => p.key === selectedPlan)!;
     return { searches: plan.searches, total: plan.price.toFixed(2) };
   };
 
@@ -120,7 +158,9 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
       ten: 'https://whop.com/checkout/plan_uVTfUpDgVftjo',
       fifty: 'https://whop.com/checkout/plan_3RImcsZ7qOASF',
       hundred: 'https://whop.com/checkout/plan_rVeQhrQj5liAI',
-      custom: 'https://whop.com/checkout/plan_JRVwXRG5cQ65z', // fallback to single
+      custom: 'https://whop.com/checkout/plan_JRVwXRG5cQ65z',
+      standard: 'https://whop.com/checkout/plan_fQtlx5U6kxbl1',
+      unlimited: 'https://whop.com/checkout/plan_bsijJIMOWQcTg',
     };
     return links[selectedPlan] || links.single;
   };
@@ -158,7 +198,7 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
             companyEmail,
             searchCount: searches,
             totalCost: parseFloat(total),
-            planName: selectedPlan === 'custom' ? 'Custom' : PLANS.find(p => p.key === selectedPlan)!.name,
+            planName: plans.find(p => p.key === selectedPlan)!.name,
           }),
         }
       ).catch(() => { /* non-critical */ });
@@ -206,7 +246,9 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Choose a Plan</h2>
+            <h2 className="text-base font-bold text-gray-900">
+              {subscriptionMode ? 'Choose a Subscription' : 'Choose a Plan'}
+            </h2>
             <p className="text-xs text-gray-500 mt-0.5">{companyName}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition">
@@ -217,9 +259,11 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
         <div className="px-6 py-5 space-y-4">
           {/* Plan cards */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Choose a plan</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              {subscriptionMode ? 'Subscription plans' : 'Choose a plan'}
+            </p>
             <div className="grid grid-cols-2 gap-3">
-              {PLANS.filter(p => p.key !== 'custom').map(plan => (
+              {plans.map(plan => (
                 <div
                   key={plan.key}
                   className={`relative rounded-xl border-2 p-4 transition-all cursor-pointer ${
@@ -249,7 +293,7 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
                     <p className={`text-xs ${
                       selectedPlan === plan.key && plan.highlight ? 'text-white/70' : 'text-gray-600'
                     }`}>
-                      {plan.perSearch} per search
+                      {plan.summary}
                     </p>
                   </div>
                   <div className={`text-right ${
@@ -310,17 +354,27 @@ export function PurchaseModal({ companyId, companyName, companyEmail, onClose }:
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h3 className="text-lg font-bold">Order Summary</h3>
-                <p className="text-gray-300 text-sm">{searches} driver searches</p>
+                <p className="text-gray-300 text-sm">
+                  {subscriptionMode
+                    ? selectedPlan === 'unlimited'
+                      ? 'Unlimited system access'
+                      : `${searches} searches per month`
+                    : `${searches} driver searches`}
+                </p>
               </div>
               <div className="text-right">
                 <div className="text-2xl font-bold">${total}</div>
-                <div className="text-sm text-gray-300">${(parseFloat(total) / searches).toFixed(2)} per search</div>
+                {!subscriptionMode && (
+                  <div className="text-sm text-gray-300">${(parseFloat(total) / searches).toFixed(2)} per search</div>
+                )}
               </div>
             </div>
           </div>
 
           <p className="text-xs text-gray-400">
-            Complete your purchase securely. You'll be redirected to payment.
+            {subscriptionMode
+              ? 'Subscription plans are charged monthly and replace per-search top-ups.'
+              : 'Complete your purchase securely. You will be redirected to payment.'}
           </p>
 
           {error && (

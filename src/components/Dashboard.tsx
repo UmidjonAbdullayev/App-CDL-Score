@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Search, LogOut, Truck, Plus, SlidersHorizontal, X,
-  AlertTriangle, Lock, Settings,
+  AlertTriangle, Lock, Settings, MessageSquare,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getUserCredits, decrementCredits, getDailyStats } from '../lib/credits';
@@ -249,7 +249,7 @@ const STATIC_DRIVER_SAMPLES: Driver[] = [
         id: 'sample-red-comment-1',
         driver_id: 'sample-red-driver',
         company_name: 'CDL Score',
-        comment: 'The driver worked with us briefly, then he refused the load after confirming pickup. Recovery costs added up quickly. The company marked him as a serious risk.',
+        comment: '🟡After all hiring process, company booked him a ticket and he confirmed. On the flight day when company texted him if he arrived he said his flight got delayed and he is sleeping. Company checked flight status however there wasnt any delays and flight departed on time. Then driver told he just wouldnt work for the company without giving a proper reason. Both money and time wasted..',
         stars: 2,
         source_type: 'Past Carrier Comment',
         tooltip_text: null,
@@ -431,8 +431,10 @@ export function Dashboard() {
   const [company, setCompany] = useState<Company>();
   const [credits, setCredits] = useState<number>(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [subscriptionMode, setSubscriptionMode] = useState(false);
   const [hasPendingPurchase, setHasPendingPurchase] = useState(false);
   const [companyRefresh, setCompanyRefresh] = useState(0);
+  const [adminPanelInitialTab, setAdminPanelInitialTab] = useState<'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'submissions' | 'announcements' | 'chat'>('requests');
 
   // ── Drivers ──────────────────────────────────────────────────────────────
   const [allDrivers, setAllDrivers] = useState<Driver[]>([]);
@@ -480,16 +482,17 @@ export function Dashboard() {
       if (!user) return;
       setUserId(user.id);
 
-      const [adminRow, c, cu, , stats] = await Promise.all([
+      const [adminRow, c, cu, appSettingResult, stats] = await Promise.all([
         supabase.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle().then(r => r.data),
         getUserCredits(user.id),
         supabase.from('company_users').select('company_id').eq('user_id', user.id).maybeSingle().then(r => r.data),
-        fetchDrivers(),
+        supabase.from('app_settings').select('value').eq('key', 'subscription_mode').maybeSingle(),
         getDailyStats(),
       ]);
 
       setIsAdmin(!!adminRow);
       setCredits(c);
+      setSubscriptionMode(appSettingResult?.data?.value === 'true');
 
       if (cu?.company_id) {
         const { data: co } = await supabase.from('companies').select('*').eq('id', cu.company_id).maybeSingle();
@@ -715,7 +718,7 @@ export function Dashboard() {
                 onClick={() => setShowPurchase(true)}
                 className="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition"
               >
-                Top Up
+                {subscriptionMode ? 'Subscribe' : 'Top Up'}
               </button>
             )}
 
@@ -756,7 +759,7 @@ export function Dashboard() {
         <MySubmissionsPanel companyId={company?.id} refreshTrigger={submissionsRefresh} />
 
         {/* First-time purchase offer */}
-        {credits === 0 && company && !company.used_first_time_offer && (
+        {credits === 0 && company && !company.used_first_time_offer && !subscriptionMode && (
           <div className="mb-5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-5 py-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1">
@@ -779,8 +782,27 @@ export function Dashboard() {
           </div>
         )}
 
+        {/* Subscription mode prompt when no searches remain */}
+        {credits === 0 && company && subscriptionMode && (
+          <div className="mb-5 flex items-start gap-3 bg-indigo-900 text-white rounded-xl px-5 py-4">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+              <MessageSquare size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Subscription mode is enabled</p>
+              <p className="text-xs text-indigo-100 mt-0.5">Choose one of the subscription plans to continue — there are no per-search top ups or first-time offers.</p>
+            </div>
+            <button
+              onClick={() => setShowPurchase(true)}
+              className="flex-shrink-0 px-3 py-1.5 bg-white text-indigo-900 text-xs font-bold rounded-lg hover:bg-indigo-50 transition"
+            >
+              Choose Subscription
+            </button>
+          </div>
+        )}
+
         {/* No-credits banner for returning users */}
-        {credits === 0 && company && company.used_first_time_offer && (
+        {credits === 0 && company && company.used_first_time_offer && !subscriptionMode && (
           <div className="mb-5 flex items-start gap-3 bg-gray-900 text-white rounded-xl px-5 py-4">
             <Lock size={18} className="text-gray-400 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
@@ -1015,9 +1037,19 @@ export function Dashboard() {
         />
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} initialTab={adminPanelInitialTab} />}
+      {isAdmin && (
+        <button
+          onClick={() => { setAdminPanelInitialTab('chat'); setShowAdmin(true); }}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-2xl shadow-xl hover:bg-indigo-700 transition"
+          title="Open admin chat"
+        >
+          <MessageSquare size={16} />
+          <span className="text-sm font-semibold">Admin Chat</span>
+        </button>
+      )}
 
-      {showFirstPurchase && company && (
+      {showFirstPurchase && company && !subscriptionMode && (
         <FirstPurchaseModal
           companyId={company.id}
           companyName={company.name}
@@ -1032,6 +1064,7 @@ export function Dashboard() {
           companyId={company.id}
           companyName={company.name}
           companyEmail={company.email}
+          subscriptionMode={subscriptionMode}
           onClose={() => setShowPurchase(false)}
         />
       )}

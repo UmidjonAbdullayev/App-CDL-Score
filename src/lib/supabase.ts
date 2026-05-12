@@ -109,6 +109,19 @@ export interface FlagReport {
   created_at: string;
 }
 
+export interface AppSetting {
+  key: string;
+  value: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  company_id: string;
+  sender_role: 'admin' | 'carrier';
+  message: string;
+  created_at: string;
+}
+
 export type DriverSubmissionStatus = 'pending' | 'approved' | 'rejected';
 
 export interface DriverSubmission {
