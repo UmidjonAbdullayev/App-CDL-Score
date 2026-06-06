@@ -1,0 +1,139 @@
+/**
+ * Night theme overrides for Tailwind utility classes used across CDL Score.
+ * Applied when html[data-theme="dark"].
+ */
+@layer base {
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
+@layer utilities {
+  [data-theme="dark"] .bg-white {
+    --tw-bg-opacity: 1;
+    background-color: rgb(30 41 59 / var(--tw-bg-opacity));
+  }
+  [data-theme="dark"] .bg-gray-50 {
+    background-color: rgb(15 23 42);
+  }
+  [data-theme="dark"] .bg-gray-100 {
+    background-color: rgb(30 41 59);
+  }
+  [data-theme="dark"] .bg-gray-200 {
+    background-color: rgb(51 65 85);
+  }
+  [data-theme="dark"] .border-gray-100 {
+    border-color: rgb(51 65 85);
+  }
+  [data-theme="dark"] .border-gray-200 {
+    border-color: rgb(71 85 105);
+  }
+  [data-theme="dark"] .border-gray-300 {
+    border-color: rgb(100 116 139);
+  }
+  [data-theme="dark"] .text-gray-900 {
+    color: rgb(241 245 249);
+  }
+  [data-theme="dark"] .text-gray-800 {
+    color: rgb(226 232 240);
+  }
+  [data-theme="dark"] .text-gray-700 {
+    color: rgb(203 213 225);
+  }
+  [data-theme="dark"] .text-gray-600 {
+    color: rgb(148 163 184);
+  }
+  [data-theme="dark"] .text-gray-500 {
+    color: rgb(148 163 184);
+  }
+  [data-theme="dark"] .text-gray-400 {
+    color: rgb(100 116 139);
+  }
+  [data-theme="dark"] .placeholder-gray-400::placeholder {
+    color: rgb(100 116 139);
+  }
+  [data-theme="dark"] .hover\:bg-gray-50:hover {
+    background-color: rgb(51 65 85);
+  }
+  [data-theme="dark"] .hover\:bg-gray-100:hover {
+    background-color: rgb(51 65 85);
+  }
+  [data-theme="dark"] .hover\:text-gray-900:hover {
+    color: rgb(241 245 249);
+  }
+  [data-theme="dark"] .hover\:text-gray-600:hover {
+    color: rgb(203 213 225);
+  }
+  [data-theme="dark"] .hover\:border-gray-400:hover {
+    border-color: rgb(148 163 184);
+  }
+  [data-theme="dark"] .focus\:bg-white:focus {
+    background-color: rgb(30 41 59);
+  }
+  [data-theme="dark"] .focus\:border-gray-300:focus {
+    border-color: rgb(100 116 139);
+  }
+  [data-theme="dark"] .focus\:ring-gray-900\/20:focus {
+    --tw-ring-color: rgb(148 163 184 / 0.25);
+  }
+  [data-theme="dark"] .bg-red-50 {
+    background-color: rgb(127 29 29 / 0.35);
+  }
+  [data-theme="dark"] .border-red-200 {
+    border-color: rgb(185 28 28 / 0.45);
+  }
+  [data-theme="dark"] .text-red-700 {
+    color: rgb(252 165 165);
+  }
+  [data-theme="dark"] .bg-amber-50 {
+    background-color: rgb(120 53 15 / 0.35);
+  }
+  [data-theme="dark"] .border-amber-200 {
+    border-color: rgb(180 83 9 / 0.45);
+  }
+  [data-theme="dark"] .text-amber-700 {
+    color: rgb(253 230 138);
+  }
+  [data-theme="dark"] .bg-emerald-50 {
+    background-color: rgb(6 78 59 / 0.35);
+  }
+  [data-theme="dark"] .text-emerald-700 {
+    color: rgb(110 231 183);
+  }
+  [data-theme="dark"] .ring-emerald-200 {
+    --tw-ring-color: rgb(16 185 129 / 0.35);
+  }
+  [data-theme="dark"] .ring-amber-200 {
+    --tw-ring-color: rgb(245 158 11 / 0.35);
+  }
+  [data-theme="dark"] .ring-red-200 {
+    --tw-ring-color: rgb(239 68 68 / 0.35);
+  }
+  [data-theme="dark"] .bg-blue-50 {
+    background-color: rgb(30 58 138 / 0.35);
+  }
+  [data-theme="dark"] .text-blue-700 {
+    color: rgb(147 197 253);
+  }
+  [data-theme="dark"] .text-blue-800 {
+    color: rgb(191 219 254);
+  }
+  [data-theme="dark"] .bg-sky-50 {
+    background-color: rgb(12 74 110 / 0.35);
+  }
+  [data-theme="dark"] .hover\:bg-red-50:hover {
+    background-color: rgb(127 29 29 / 0.45);
+  }
+  [data-theme="dark"] .shadow-sm {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  }
+  [data-theme="dark"] .shadow-xl {
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.45), 0 8px 10px -6px rgb(0 0 0 / 0.35);
+  }
+  [data-theme="dark"] .card-shadow {
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 4px 12px rgb(0 0 0 / 0.25);
+  }
+  [data-theme="dark"] .card-shadow-hover {
+    box-shadow: 0 4px 6px rgb(0 0 0 / 0.3), 0 12px 28px rgb(0 0 0 / 0.35);
+  }
+}
