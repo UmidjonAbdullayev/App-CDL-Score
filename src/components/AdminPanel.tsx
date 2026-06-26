@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Check, Trash2, Plus, RefreshCw, Search, Edit3, ChevronUp, Shield, Ban, AlertTriangle, MessageSquare, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { setCredits, addCredits } from '../lib/credits';
-import type { AppSetting, ChatMessage, Company, Driver, PurchaseRequest, FlagReport, DriverSubmission, CarrierAnnouncement } from '../lib/supabase';
+import type { AppSetting, ChatMessage, Company, Driver, PurchaseRequest, FlagReport, DriverSubmission, CarrierAnnouncement, EnterpriseContactRequest } from '../lib/supabase';
 import { markAdminChatRead, isAdminChatCompanyUnread } from '../lib/readState';
 
 interface CompanyChatSummary {
@@ -18,7 +18,11 @@ interface Props {
   onChatRead?: () => void;
 }
 
-type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks' | 'submissions' | 'announcements' | 'chat' | 'crm';
+type Tab = 'requests' | 'companies' | 'drivers' | 'credits' | 'reports' | 'networks' | 'submissions' | 'announcements' | 'chat' | 'crm' | 'enterprise';
+
+interface EnterpriseRequestRow extends EnterpriseContactRequest {
+  companies?: { name: string; email: string } | null;
+}
 
 interface CrmUserRow {
   id: string;
@@ -101,6 +105,8 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
   const [annTitle, setAnnTitle] = useState('');
   const [annBody, setAnnBody] = useState('');
   const [annSubmitting, setAnnSubmitting] = useState(false);
+
+  const [enterpriseRequests, setEnterpriseRequests] = useState<EnterpriseRequestRow[]>([]);
 
   const [status, setStatus] = useState('');
   const [statusOk, setStatusOk] = useState(true);
@@ -191,6 +197,14 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
       .select('*')
       .order('published_at', { ascending: false });
     setAnnouncements((data as CarrierAnnouncement[]) ?? []);
+  };
+
+  const loadEnterpriseRequests = async () => {
+    const { data } = await supabase
+      .from('enterprise_contact_requests')
+      .select('*, companies(name, email)')
+      .order('created_at', { ascending: false });
+    setEnterpriseRequests((data as EnterpriseRequestRow[]) ?? []);
   };
 
   const loadNetworks = async () => {
@@ -309,6 +323,7 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
 
   useEffect(() => {
     loadSubmissions();
+    loadEnterpriseRequests();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setAdminUserId(user.id);
     });
@@ -338,6 +353,7 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
     else if (tab === 'networks') loadNetworks();
     else if (tab === 'submissions') loadSubmissions();
     else if (tab === 'announcements') loadAnnouncements();
+    else if (tab === 'enterprise') loadEnterpriseRequests();
     else if (tab === 'chat') {
       loadCompanies();
       loadChatSummaries();
@@ -635,6 +651,7 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
 
   const openReports = reports.filter(r => r.status === 'open').length;
   const pendingReqs = requests.filter(r => r.status === 'pending').length;
+  const pendingEnterprise = enterpriseRequests.filter(r => r.status === 'pending').length;
   const bannedCount = ipEntries.filter(e => e.is_banned).length;
   const pendingSubmissions = submissions.filter(s => s.status === 'pending').length;
 
@@ -709,8 +726,19 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
     loadAnnouncements();
   };
 
+  const updateEnterpriseStatus = async (id: string, status: 'contacted' | 'closed') => {
+    const { error } = await supabase
+      .from('enterprise_contact_requests')
+      .update({ status })
+      .eq('id', id);
+    if (error) { showStatus(error.message, false); return; }
+    showStatus(`Marked as ${status}.`);
+    loadEnterpriseRequests();
+  };
+
   const tabs: { key: Tab; label: string; badge?: number }[] = [
     { key: 'requests', label: 'Requests', badge: pendingReqs },
+    { key: 'enterprise', label: 'Enterprise', badge: pendingEnterprise > 0 ? pendingEnterprise : undefined },
     { key: 'companies', label: 'Companies' },
     { key: 'drivers', label: 'Drivers' },
     { key: 'credits', label: 'Credits' },
@@ -809,6 +837,67 @@ export function AdminPanel({ onClose, initialTab, onChatRead }: Props) {
                       <button onClick={() => deleteRequest(req.id)} className="p-1.5 text-gray-400 hover:text-red-500 transition">
                         <Trash2 size={15} />
                       </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── ENTERPRISE CONTACT REQUESTS ── */}
+          {tab === 'enterprise' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">{pendingEnterprise} pending enterprise request(s)</p>
+              {enterpriseRequests.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">No enterprise contact requests yet.</p>
+              )}
+              {enterpriseRequests.map(req => (
+                <div
+                  key={req.id}
+                  className={`border rounded-xl p-4 ${
+                    req.status === 'pending' ? 'border-indigo-200 bg-indigo-50/40' : 'border-gray-200 bg-gray-50/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-gray-900">{req.companies?.name ?? '—'}</p>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          req.status === 'pending'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : req.status === 'contacted'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {req.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">{req.companies?.email}</p>
+                      <p className="text-xs text-gray-700 mt-2">
+                        <span className="font-semibold">Contact email:</span> {req.contact_email}
+                      </p>
+                      <p className="text-xs text-gray-700 mt-1">
+                        <span className="font-semibold">Phone:</span> {req.contact_phone}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-1">{new Date(req.created_at).toLocaleString()}</p>
+                    </div>
+                    <div className="flex flex-col gap-2 flex-shrink-0">
+                      {req.status === 'pending' && (
+                        <button
+                          onClick={() => updateEnterpriseStatus(req.id, 'contacted')}
+                          className="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-lg hover:bg-gray-700 transition"
+                        >
+                          Mark Contacted
+                        </button>
+                      )}
+                      {req.status !== 'closed' && (
+                        <button
+                          onClick={() => updateEnterpriseStatus(req.id, 'closed')}
+                          className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-50 transition"
+                        >
+                          Close
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase, registrationGate } from '../lib/supabase';
+import { validateReferralCodeInput, INVALID_REFERRAL_MSG } from '../lib/referralCode';
 import { Truck, ChevronRight, ChevronLeft, Shield, AlertTriangle } from 'lucide-react';
 
 interface Props {
@@ -31,13 +32,24 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleStep1 = (e: React.FormEvent) => {
+  const handleStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!companyName.trim() || !mcNumber.trim() || !companyEmail.trim()) {
       setError('All fields are required.');
       return;
     }
+
+    if (referralCode.trim()) {
+      setLoading(true);
+      const check = await validateReferralCodeInput(referralCode);
+      setLoading(false);
+      if (!check.valid) {
+        setError(check.error);
+        return;
+      }
+    }
+
     // Pre-fill login email with company email — user can change it if they want
     if (!loginEmail.trim()) setLoginEmail(companyEmail.trim());
     setStep(2);
@@ -50,8 +62,20 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setLoading(true);
 
+    if (referralCode.trim()) {
+      const check = await validateReferralCodeInput(referralCode);
+      if (!check.valid) {
+        setError(check.error);
+        setStep(1);
+        setLoading(false);
+        return;
+      }
+    }
+
     // Open the gate BEFORE signUp so onAuthStateChange holds the session
     registrationGate.begin();
+
+    let createdUserId: string | null = null;
 
     try {
       // 1. Create the auth user
@@ -68,6 +92,7 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
         throw new Error(authErr.message);
       }
       if (!authData.user) throw new Error('Account creation failed. Please try again.');
+      createdUserId = authData.user.id;
 
       // 2. Get IP (best-effort, non-blocking)
       const ip = await getClientIp();
@@ -86,9 +111,11 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
 
       const res = result as { success: boolean; error?: string };
       if (!res.success) {
-        await supabase.auth.signOut();
         registrationGate.abort();
         const msg = res.error ?? 'Registration failed. Please try again.';
+        if (msg.includes('referral code') || msg === INVALID_REFERRAL_MSG) {
+          setStep(1);
+        }
         throw new Error(msg);
       }
 
@@ -105,6 +132,9 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
       setLoading(false);
     } catch (err: unknown) {
       registrationGate.abort();
+      if (createdUserId) {
+        await supabase.auth.signOut();
+      }
       setError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
       setLoading(false);
     }
@@ -180,8 +210,12 @@ export function SignupPage({ onSwitchToLogin, onAwaitingEmailVerification }: Pro
                   />
                   <p className="text-[11px] text-gray-400 mt-1">Have a code from another carrier? Enter it here.</p>
                 </div>
-                <button type="submit" className="w-full mt-2 flex items-center justify-center gap-2 bg-gray-900 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-800 transition">
-                  Continue <ChevronRight size={16} />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full mt-2 flex items-center justify-center gap-2 bg-gray-900 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-800 transition disabled:opacity-50"
+                >
+                  {loading ? 'Checking referral code…' : 'Continue'} {!loading && <ChevronRight size={16} />}
                 </button>
               </form>
             )}

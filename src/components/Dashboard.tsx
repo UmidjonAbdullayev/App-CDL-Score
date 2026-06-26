@@ -1058,7 +1058,6 @@ export function Dashboard() {
           companyId={company.id}
           companyName={company.name}
           companyEmail={company.email}
-          subscriptionMode={subscriptionMode}
           referralDiscountPct={company.referral_discount_pct ?? 0}
           onClose={() => setShowPurchase(false)}
           onPurchaseSubmitted={() => setCompanyRefresh(r => r + 1)}

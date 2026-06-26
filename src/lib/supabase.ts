@@ -100,6 +100,17 @@ export interface PurchaseRequest {
   referral_discount_applied?: boolean;
 }
 
+export interface EnterpriseContactRequest {
+  id: string;
+  company_id: string;
+  contact_email: string;
+  contact_phone: string;
+  status: 'pending' | 'contacted' | 'closed';
+  admin_notes: string | null;
+  created_at: string;
+  companies?: { name: string; email: string } | null;
+}
+
 export interface FlagReport {
   id: string;
   report_type: 'driver' | 'comment';

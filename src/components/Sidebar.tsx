@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'announcements', label: 'Announcements', icon: Megaphone, action: 'navigate' },
   { id: 'history', label: 'Search History', icon: History, action: 'navigate' },
   { id: 'referrals', label: 'Referrals', icon: Gift, action: 'navigate', variant: 'referral' },
-  { id: 'billing', label: 'Billing / Top Up', icon: CreditCard, action: 'modal' },
+  { id: 'billing', label: 'Billing', icon: CreditCard, action: 'modal' },
   { id: 'support-chat', label: 'Support Chat', icon: MessageSquare, action: 'support-chat' },
   { id: 'admin-chat', label: 'Admin Chat', icon: MessageSquare, action: 'modal' },
   { id: 'settings', label: 'Settings', icon: Settings, action: 'navigate' },

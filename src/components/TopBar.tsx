@@ -143,7 +143,7 @@ export function TopBar({
               onClick={onTopUp}
               className="hidden sm:block px-4 py-2 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition shadow-sm hover:shadow-md"
             >
-              {subscriptionMode ? 'Subscribe' : 'Top Up'}
+              Billing
             </button>
           )}
 
@@ -195,7 +195,7 @@ export function TopBar({
                   onClick={() => { onTopUp(); setUserMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition sm:hidden"
                 >
-                  {subscriptionMode ? 'Subscribe' : 'Top Up Credits'}
+                  Billing
                 </button>
                 <div className="px-4 py-2 border-t border-gray-100">
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Appearance</p>
