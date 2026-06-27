@@ -1,4 +1,4 @@
-const REPORTS_BASE = 275_164;
+const REPORTS_BASE = 512_000;
 const REPORTS_BASELINE_DATE = new Date('2026-05-29T00:00:00.000Z');
 
 function seededDailyBonus(dateKey: string): number {

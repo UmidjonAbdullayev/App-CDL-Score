@@ -31,20 +31,9 @@ import { AddDriverPage } from './AddDriverPage';
 import { ReferralsPanel } from './ReferralsPanel';
 import { AdminChatWidget } from './AdminChatWidget';
 import { useUnreadIndicators } from '../hooks/useUnreadIndicators';
+import { validateDriverSearchInput } from '../lib/validateDriverSearchInput';
+import { SEARCH_VALIDATION_ERROR } from '../lib/searchValidation';
 import type { FilterFlag } from './SearchBar';
-
-// Returns true if the string looks like a plausible name (2+ words, letters only)
-function looksLikeName(q: string): boolean {
-  const trimmed = q.trim();
-  if (trimmed.length < 4) return false;
-  // Must contain at least one space (first + last name)
-  if (!trimmed.includes(' ')) return false;
-  // Must be only letters, spaces, hyphens, apostrophes
-  if (!/^[a-zA-Z\s'\-]+$/.test(trimmed)) return false;
-  // Each word must be at least 2 chars
-  const words = trimmed.split(/\s+/);
-  return words.every(w => w.length >= 2);
-}
 
 // Seeded pseudo-random from a string
 function seededRand(seed: string, min: number, max: number): number {
@@ -632,43 +621,56 @@ export function Dashboard() {
   // ── Execute search ────────────────────────────────────────────────────────
   const executeSearch = async () => {
     setSearchErr('');
-    const q = query.trim();
-    const key = inputKey;
+    const rawQ = query.trim();
+    if (!rawQ) return;
 
-    // Validate: must look like a real name
-    if (q && !looksLikeName(q)) {
-      setSearchErr('Please enter a valid driver name (first and last name).');
-      return;
-    }
+    let key = searchHistoryKey(rawQ, flagFilter);
 
-    // Name-flip detection: check if searched words match any existing driver (order-independent)
-    if (q && looksLikeName(q)) {
-      const qWords = nameWords(q).sort().join(' ');
-      const qLower = q.toLowerCase().trim();
-      const flipped = allDrivers.find(d => {
-        const dLower = d.full_name.toLowerCase().trim();
-        if (dLower === qLower) return false; // exact match, not a flip
-        return nameWords(d.full_name).sort().join(' ') === qWords;
-      });
-      if (flipped) {
-        setSearchErr(`Did you mean "${flipped.full_name}"? We found a record that may match — try searching that name.`);
-        return;
-      }
-    }
-
-    // If we already have a paid result for this exact key, show it instantly
+    // Cached / previously paid searches skip re-validation and do not charge again
     if (cache.current.has(key) || notFoundKeys.current.has(key)) {
       setSearchKey(key);
       return;
     }
-
-    // Same query was paid for before (e.g. from search history after cache refresh)
-    if (restorePaidSearch(q, flagFilter)) {
+    if (restorePaidSearch(rawQ, flagFilter)) {
       return;
     }
 
     if (credits <= 0) {
       setSearchErr('You have no searches remaining.');
+      return;
+    }
+
+    // ── Search validation (before DB query + credit deduction) ─────────────
+    // Step 1: basic rules (client). Step 2: AI via Edge Function. Step 3: fallback.
+    const validation = await validateDriverSearchInput(rawQ);
+    if (!validation.valid || !validation.cleaned_name) {
+      setSearchErr(validation.userMessage ?? SEARCH_VALIDATION_ERROR);
+      return;
+    }
+
+    const q = validation.cleaned_name;
+    if (q !== rawQ) {
+      setQuery(q);
+      key = searchHistoryKey(q, flagFilter);
+      if (cache.current.has(key) || notFoundKeys.current.has(key)) {
+        setSearchKey(key);
+        return;
+      }
+      if (restorePaidSearch(q, flagFilter)) {
+        return;
+      }
+    }
+
+    // Name-flip detection after validated cleaned name
+    const qWords = nameWords(q).sort().join(' ');
+    const qLower = q.toLowerCase().trim();
+    const flipped = allDrivers.find(d => {
+      const dLower = d.full_name.toLowerCase().trim();
+      if (dLower === qLower) return false;
+      return nameWords(d.full_name).sort().join(' ') === qWords;
+    });
+    if (flipped) {
+      setSearchErr(`Did you mean "${flipped.full_name}"? We found a record that may match — try searching that name.`);
       return;
     }
 
@@ -687,7 +689,7 @@ export function Dashboard() {
         setCredits(result.creditsLeft);
         cache.current.set(key, filtered);
         return filtered;
-      } else if (q && looksLikeName(q)) {
+      } else if (q) {
         if (shouldShowNotFound(q)) {
           notFoundKeys.current.add(key);
           cache.current.set(key, []);

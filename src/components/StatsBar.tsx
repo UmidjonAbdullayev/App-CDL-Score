@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { TrendingUp, DollarSign, Users, FileCheck } from 'lucide-react';
 import { getCarrierReportsCount } from '../lib/carrierReportsCount';
 
-const DRIVER_BASE = 208_000;
-const DRIVER_BASELINE_DATE = new Date('2026-05-06T00:00:00.000Z');
+const DRIVER_BASE = 512_000;
+const DRIVER_BASELINE_DATE = new Date('2026-05-29T00:00:00.000Z');
 
 function getDynamicDriverCount(): number {
   const daysSince = Math.floor(
