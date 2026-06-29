@@ -473,6 +473,7 @@ export function Dashboard() {
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [supportChatOpen, setSupportChatOpen] = useState(false);
+  const [pendingAutoSearch, setPendingAutoSearch] = useState<string | null>(null);
 
   const {
     unreadAnnouncements,
@@ -487,6 +488,17 @@ export function Dashboard() {
       markAnnouncementsViewed();
     }
   }, [activeView, markAnnouncementsViewed]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const search = params.get('search') || params.get('q');
+    if (search?.trim() && params.get('autosearch') === '1') {
+      setPendingAutoSearch(search.trim());
+      setQuery(search.trim());
+      setActiveView('search');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -619,9 +631,9 @@ export function Dashboard() {
   };
 
   // ── Execute search ────────────────────────────────────────────────────────
-  const executeSearch = async () => {
+  const executeSearch = async (overrideQuery?: string) => {
     setSearchErr('');
-    const rawQ = query.trim();
+    const rawQ = (overrideQuery ?? query).trim();
     if (!rawQ) return;
 
     let key = searchHistoryKey(rawQ, flagFilter);
@@ -742,6 +754,13 @@ export function Dashboard() {
     setSearching(false);
     setShowSuggestions(false);
   };
+
+  useEffect(() => {
+    if (!pendingAutoSearch || initLoading || !userId) return;
+    const name = pendingAutoSearch;
+    setPendingAutoSearch(null);
+    void executeSearch(name);
+  }, [pendingAutoSearch, initLoading, userId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') executeSearch();

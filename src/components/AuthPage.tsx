@@ -27,7 +27,7 @@ export function AuthPage({ onAwaitingEmailVerification }: Props) {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (err) setError('Invalid email or password.');
     setLoading(false);
   };
